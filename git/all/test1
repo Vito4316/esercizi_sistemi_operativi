@@ -1,0 +1,8 @@
+#include <stdio.h>
+#include <string.h>
+
+int main(){
+	char x[10] = "Ciao!";
+	
+	printf("%d, %d\n", sizeof(x), strlen(x));
+}
