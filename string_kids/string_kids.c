@@ -23,10 +23,7 @@ int main(int argc, char** argv) {
         if(fork() == 0)
             break;
         isFather = 1;
-    }
-
-    //char vars[4][2] = {"c","i","a", NULL};
-    
+    }    
 
     if(!isFather) {
         char** vars = malloc(sizeof(char*) * 3);

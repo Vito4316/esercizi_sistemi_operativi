@@ -25,7 +25,6 @@ int main(int argc, char** argv) {
     bzero(&signal, sizeof(struct sigaction)); //setting SIGINT
     signal.sa_handler = &handler;
     sigaction(SIGINT, &signal, NULL);
-
     while(1) {
         var++;
         if(var >= 126)
