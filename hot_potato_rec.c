@@ -85,14 +85,6 @@ int pipe_read(t_pipe p, void* elem, size_t size) {
     dprintf(2, "ERROR! READING CLOSED PIPE!\n");
 }
 
-void run_parent() {
-    printf("Father writing %d\n", mod);
-    if(pipe_write(first, &mod, sizeof(mod)) == sizeof(mod)) 
-        printf("Father written %d\n", mod);
-    pipe_close(&first);
-    exit(0);    
-}
-
 void run_child(t_pipe my_pipe) {
     int val, n;
     int flag = 1;
@@ -108,7 +100,7 @@ void run_child(t_pipe my_pipe) {
         if(n == 0) {
             pipe_write(my_pipe, &n, sizeof(n));
             pipe_close(&my_pipe);
-            flag = 0;
+            exit(0);
         }
         else n--;
         
@@ -133,23 +125,22 @@ void recursive_fork_piped_child(int read, int num) {
             run_child(new_pipe);
             exit(0);
         }
-        run_parent();
+        return;
     }
 
     new_pipe = pipe_init();
 
     if(fork() == 0) {
-        pipe_closewrite(&new_pipe);
-        recursive_fork_piped_child(new_pipe.read, num-1);
+        if(read != first.read) pipe_close(&first);
+        pipe_closeread(&new_pipe);
+        pipe_setread(&new_pipe, read);
         run_child(new_pipe);
         exit(0);
     }
 
-    if(read != first.read) pipe_close(&first);
-    pipe_closeread(&new_pipe);
-    pipe_setread(&new_pipe, read);
-    run_child(new_pipe);
-    exit(0);
+    pipe_closewrite(&new_pipe);
+    recursive_fork_piped_child(new_pipe.read, num-1);
+    return; 
 }
 
 int main(int argc, char** argv) {
@@ -166,5 +157,12 @@ int main(int argc, char** argv) {
     /* setting first pipe */
     first = pipe_init();
     recursive_fork_piped_child(first.read, num_child);
-    /*parent is going to write at the end of the recursive chain! */
+    
+    printf("Parent writing %d\n", mod);
+    if(pipe_write(first, &mod, sizeof(mod)) == sizeof(mod)) 
+        printf("Parent written %d\n", mod);
+    pipe_close(&first);
+    while(wait(NULL) != -1);
+    printf("All child are dead!\n");
+    exit(0);    
 }
