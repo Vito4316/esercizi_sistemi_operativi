@@ -12,7 +12,7 @@
 #define IN 0 
 #define OUT 1
 
-int stop = 1;
+int stop = 0;
 int ppid;
 
 typedef union u_pipe{
@@ -24,9 +24,9 @@ typedef union u_pipe{
 } t_pipe;
 
 void pipe_close(t_pipe* p) {
-    close(p->in);
+    if(p->in_open) close(p->in);
     p->in_open = 0;
-    close(p->out);
+    if(p->out_open) close(p->out);
     p->out_open = 0;
 }
 
@@ -47,8 +47,17 @@ void pipe_closeout(t_pipe* p) {
 t_pipe pipe_init() {
     t_pipe x;
     pipe(x.buff);
+    if(errno != 0) printf("Pipe creation error: %d\n", errno);
     x.in_open = 1;
     x.out_open = 1;
+    return x;
+}
+
+t_pipe pipe_emptyinit() {
+    t_pipe x;
+    bzero(&x, sizeof(x));
+    x.in_open = 0;
+    x.out_open = 0;
     return x;
 }
 
@@ -76,36 +85,41 @@ int pipe_read(t_pipe p, void* elem, size_t size) {
 
 void run_piped_child(int in, int out, int i, int* unwanted, int un_size) {
     if(fork() != 0) return;
-    t_pipe my_pipe = pipe_init();
-    pipe_setin(&my_pipe, in);
-    pipe_setout(&my_pipe, out);
-    printf("Child %d, PID: %d generated\n", i, getpid());
-    int j;
-    for(j = 0; j < un_size; j++) close(unwanted[i]);
-
 
     /* synchronization */
     printf("Child %d, PID: %d generated, entering in sleep\n", i, getpid());
     while(stop) pause();
     printf("Child %d, PID: %d woken up\n", i, getpid());
 
+    t_pipe my_pipe = pipe_emptyinit();
+    pipe_setin(&my_pipe, in);
+    pipe_setout(&my_pipe, out);
+    int j, n, val;
+    for(j = 0; j < un_size; j++) close(unwanted[i]);
+
     while(1) {
-        int n;
-        if(pipe_read(my_pipe, &n, sizeof(n)) == sizeof(n)) printf("PID: %d, read: %d\n", getpid(), n);
-        else {
-            printf("child %d, PID: %d ERROR! Could not read\n", i, getpid());
+        if((val = pipe_read(my_pipe, &n, sizeof(n))) == sizeof(n) && n != 0) 
+            printf("Child %d, PID: %d, read: %d\n", i, getpid(), n);
+        else if(val != sizeof(n)){
+            printf("Child %d, PID: %d ERROR! Could not read, byte read = %d, err: %d\n", i, getpid(), val, errno);
+            /*n = 10;
+            pipe_write(my_pipe, &n, sizeof(n));*/
             exit(-1);
         }
+        
         if(n == 0) {
-            printf("%d ended\n", getpid());
+            printf("Child %d, PID: %d ended\n", i, getpid());
             pipe_write(my_pipe, &n, sizeof(n));
             pipe_close(&my_pipe);
             exit(0);
         }
+        
         n--;
-        if(pipe_write(my_pipe, &n, sizeof(n)) == sizeof(n)) printf("PID: %d, write: %d\n", getpid(), n);
+        
+        if((val = pipe_write(my_pipe, &n, sizeof(n))) == sizeof(n)) 
+            printf("Child %d, PID: %d, write: %d\n", i, getpid(), n);
         else {
-            printf("child %d, PID: %d ERROR! Could not write\n", i, getpid());
+            printf("Child %d, PID: %d ERROR! Could not write, byte writen = %d\n", i, getpid(), val);
             exit(-1);
         }
     }
@@ -139,7 +153,7 @@ int main(int argc, char** argv) {
 
     for(i = 0; i < num_child; i++) {
         newpipe = pipe_init();
-    
+        
         if(i == 0) {
             unw[0] = firstpipe.out;
             unw[1] = newpipe.in;
@@ -147,8 +161,8 @@ int main(int argc, char** argv) {
             pipe_closeout(&newpipe);
         }
         else if(i == num_child-1) {
-            unw[0] = oldpipe.in;
-            unw[1] = firstpipe.out;
+            unw[0] = oldpipe.out;
+            unw[1] = firstpipe.in;
             run_piped_child(oldpipe.in, firstpipe.out, i, unw, 2);
             pipe_closein(&oldpipe);
         }
@@ -165,10 +179,11 @@ int main(int argc, char** argv) {
 
     pipe_close(&oldpipe);
 
-    kill(0, SIGUSR1);
+    //kill(0, SIGUSR1);
 
+    printf("Father writing %d\n", mod);
     if(pipe_write(firstpipe, &mod, sizeof(mod)) == sizeof(mod)) 
-        printf("Written %d\n", mod);
+        printf("Father written %d\n", mod);
     pipe_close(&firstpipe);
     while(wait(NULL) != -1);
     exit(0);    
