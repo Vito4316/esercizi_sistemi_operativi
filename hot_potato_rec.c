@@ -50,6 +50,7 @@ t_pipe pipe_init() {
     t_pipe x;
     pipe(x.buff);
     if(errno != 0) printf("Pipe creation error: %d\n", errno);
+    //else printf("New pipe: write %d read %d\n", x.write, x.read);
     x.in_open = 1;
     x.out_open = 1;
     return x;
@@ -73,42 +74,45 @@ void pipe_setwrite(t_pipe* p, int out) {
     p->out_open = 1;
 }
 
+/*returns true if successful, false if not */
+
 int pipe_write(t_pipe p, void* elem, size_t size) {
     if(p.out_open)
-        return write(p.write, elem, size);
+        return size == write(p.write, elem, size);
     dprintf(2, "ERROR! WRITING TO CLOSED PIPE!\n");
 }
 
 int pipe_read(t_pipe p, void* elem, size_t size) {
     if(p.in_open)
-        return read(p.read, elem, size);
+        return size == read(p.read, elem, size);
     dprintf(2, "ERROR! READING CLOSED PIPE!\n");
 }
 
 void run_child(t_pipe my_pipe) {
-    int val, n;
+    int n;
     int flag = 1;
     while(flag) {
-        if((val = pipe_read(my_pipe, &n, sizeof(n))) == sizeof(n)) {
+        if(pipe_read(my_pipe, &n, sizeof(n))) {
             printf("PID: %d, read: %d\n", getpid(), n);
         }
-        else if(val != sizeof(n)){
-            printf("PID: %d ERROR! Could not read, byte read = %d, err: %d\n", getpid(), val, errno);
+        else {
+            printf("PID: %d ERROR! Could not read, err: %d\n", getpid(), errno);
             exit(-1);
         }
     
         if(n == 0) {
-            pipe_write(my_pipe, &n, sizeof(n));
+            if(pipe_write(my_pipe, &n, sizeof(n)));
+            else printf("PID: %d ERROR! Could not write termination value\n", getpid());
             pipe_close(&my_pipe);
             exit(0);
         }
         else n--;
         
-        if((val = pipe_write(my_pipe, &n, sizeof(n))) == sizeof(n)) {
+        if(pipe_write(my_pipe, &n, sizeof(n))) {
             printf("PID: %d, write: %d\n", getpid(), n);
         }
         else {
-            printf("PID: %d ERROR! Could not write, byte writen = %d\n", getpid(), val);
+            printf("PID: %d ERROR! Could not write\n", getpid());
             exit(-1);
         }
     }
@@ -121,6 +125,7 @@ void recursive_fork_piped_child(int read, int num) {
         if(fork() == 0) {
             new_pipe = pipe_emptyinit();   
             pipe_setread(&new_pipe, read);
+            pipe_closeread(&first);
             pipe_setwrite(&new_pipe, first.write);
             run_child(new_pipe);
             exit(0);
@@ -132,14 +137,17 @@ void recursive_fork_piped_child(int read, int num) {
 
     if(fork() == 0) {
         if(read != first.read) pipe_close(&first);
+        else pipe_closewrite(&first);
         pipe_closeread(&new_pipe);
         pipe_setread(&new_pipe, read);
         run_child(new_pipe);
         exit(0);
     }
 
+    if(read != first.read) close(read);
     pipe_closewrite(&new_pipe);
     recursive_fork_piped_child(new_pipe.read, num-1);
+    //pipe_closeread(&new_pipe);
     return; 
 }
 
